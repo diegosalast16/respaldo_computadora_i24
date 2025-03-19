@@ -1,0 +1,121 @@
+import pandas as pd
+
+# Ejemplo de uso
+area = 60
+habitaciones = 2
+tipo_inmueble = 'Apartamento'
+colonia = 'Polanco'
+factor_variable = 0.08
+
+# Cargar el archivo CSV en un DataFrame
+data = pd.read_csv('C:\\Users\\diego.trejo\\Downloads\\i24.csv')
+
+# Calcular el precio por habitación
+data['Precio por Habitación'] = data['Precio de Renta'] / data['Habitaciones']
+
+# Calcular la desviación estándar del área por colonia y tipo de inmueble
+std_area = data.groupby(['Colonia', 'Tipo de Inmueble'])['Área'].std().reset_index()
+std_area.rename(columns={'Área': 'Desviación Estándar del Área'}, inplace=True)
+
+# Unir la desviación estándar al dataset original
+data = data.merge(std_area, on=['Colonia', 'Tipo de Inmueble'], how='left')
+
+# Normalizar el área
+data['Área Normalizada'] = data['Área'] / data['Desviación Estándar del Área']
+
+#Funcion para calcular anorm
+def calcular_anorm(colonia, tipo_inmueble):
+    # Filtrar datos
+    subset = data[(data['Tipo de Inmueble'] == tipo_inmueble) & (data['Colonia'] == colonia)]
+    
+    # Eliminar
+    if subset.empty:
+        return 0  # En caso de no encontrar dato
+    #Calcular desviación estándar
+    std = subset['Área'].std()
+    #Calcular anorm para área
+    anorm = area / std 
+    
+    return anorm
+#Asignar resultado a una variable 
+area_norm = calcular_anorm(colonia, tipo_inmueble)
+
+"""
+# Calcular límites de anorm ajustados por colonia y tipo de inmueble
+max_area = data.query(f'`Área Normalizada` >= {area_norm} and `Habitaciones` <= {habitaciones}').groupby(['Colonia', 'Tipo de Inmueble'])['Área Normalizada'].min().reset_index()
+max_area.rename(columns={'Área Normalizada': 'Max Área'}, inplace=True)
+min_area = data.query(f'`Área Normalizada` <= {area_norm} and `Habitaciones` <= {habitaciones}').groupby(['Colonia', 'Tipo de Inmueble'])['Área Normalizada'].max().reset_index()
+min_area.rename(columns={'Área Normalizada': 'Min Área'}, inplace=True)
+
+# Unir los límites ajustados
+data = data.merge(min_area, on=['Tipo de Inmueble', 'Colonia'], how='left')
+data = data.merge(max_area, on=['Tipo de Inmueble', 'Colonia'], how='left')
+"""
+
+#Funcion para calcular límites de anorm
+def calcular_anorm_min(colonia, tipo_inmueble):
+    # Filtrar datos
+    subset = data[(data['Área Normalizada'] <= area_norm) & (data['Tipo de Inmueble'] == tipo_inmueble) & 
+                  (data['Colonia'] == colonia) & (data['Habitaciones'] <= habitaciones)]
+    
+    # Eliminar
+    if subset.empty:
+        return data.groupby(['Colonia', 'Tipo de Inmueble'])['Área Normalizada'].min()  # En caso de no encontrar dato
+    #Calcular mínimo
+    min_area_input = subset['Área Normalizada'].max()
+    
+    return min_area_input
+
+min_area_input = calcular_anorm_min(colonia, tipo_inmueble)
+
+def calcular_anorm_max(colonia, tipo_inmueble):
+    # Filtrar datos
+    subset = data[(data['Área Normalizada'] >= area_norm) & (data['Tipo de Inmueble'] == tipo_inmueble) & 
+                  (data['Colonia'] == colonia) & (data['Habitaciones'] <= habitaciones)]
+    
+    # Eliminar
+    if subset.empty:
+        return data.groupby(['Colonia', 'Tipo de Inmueble'])['Área Normalizada'].max()   # En caso de no encontrar dato
+    #Calcular máximo
+    max_area_input = subset['Área Normalizada'].min()
+    
+    return max_area_input
+
+max_area_input = calcular_anorm_max(colonia, tipo_inmueble)
+
+"""
+# Calcular el promedio del precio por habitación ajustado
+avg_price_per_room = data.query(f'`Área Normalizada` >= {min_area_input} and `Área Normalizada` <= {max_area_input} and `Habitaciones` <= {habitaciones}').groupby(['Tipo de Inmueble', 'Colonia'])['Precio por Habitación'].mean().reset_index()
+avg_price_per_room.rename(columns={'Precio por Habitación': 'Promedio del Precio por Habitación Ajustado'}, inplace=True)
+
+# Unir el promedio ajustado al dataset original
+data = data.merge(avg_price_per_room, on=['Tipo de Inmueble', 'Colonia'], how='left')
+"""
+
+def estimar_precio(area, habitaciones, tipo_inmueble, colonia, factor_variable):
+    # Filtrar datos relevantes
+    subset = data[(data['Área Normalizada'] >= min_area_input) & (data['Área Normalizada'] <= max_area_input) & (data['Habitaciones'] <= habitaciones) & 
+                  (data['Tipo de Inmueble'] == tipo_inmueble) & (data['Colonia'] == colonia)]
+    
+    # Obtener el promedio del precio por habitación ajustado
+    if subset.empty:
+        return 0, 0  # En caso de no encontrar datos
+    
+    promedio_precio_por_habitacion = subset['Precio por Habitación'].mean()
+    
+    # Calcular el precio estimado
+    precio_estimado = promedio_precio_por_habitacion * habitaciones
+    
+    # Ajustar con el factor variable
+    precio_minimo_sugerido = precio_estimado * (1 - factor_variable)
+    precio_maximo_sugerido = precio_estimado * (1 + factor_variable)
+    
+    return precio_minimo_sugerido, precio_maximo_sugerido
+
+precio_minimo, precio_maximo = estimar_precio(area, habitaciones, tipo_inmueble, colonia, factor_variable)
+
+print(f"Precio Mínimo Sugerido: ${precio_minimo:.2f}")
+print(f"Precio Máximo Sugerido: ${precio_maximo:.2f}")
+print(area_norm)
+print(min_area_input)
+print(max_area_input)
