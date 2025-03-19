@@ -3,7 +3,7 @@ import unicodedata
 import heapq
 import pandas as pd
 
-venta_nueva = pd.read_csv('C:\\Users\\diego.trejo\\Downloads\\venta_nueva.csv')
+venta_nueva = pd.read_csv('C:\\Users\\diego.trejo\\Downloads\\leads.csv')
 ejecutivos = pd.read_csv('C:\\Users\\diego.trejo\\Downloads\\Ejecutivos.csv')
 
 leads_df = pd.DataFrame(venta_nueva)
@@ -19,45 +19,51 @@ def limpiar_ciudad(df, columns):
     return df
 
 df_ciudades = [
-    (leads_df, ['provincia principal']),
+    (leads_df, ['provincia_principal']),
     (ejecutivos_df, ['Estado'])
     ]
 
 for df, col_ciudad in df_ciudades:
     limpiar_ciudad(df, col_ciudad)
 
-def asignar_leads_por_provincia(leads_df, ejecutivos_df):
-    asignacion = {}
+def asignar_leads_por_equipo(leads_df, ejecutivos_df):
+    asignaciones = []
     
-    ejecutivos_por_provincia = ejecutivos_df.groupby('Estado')['Ejecutivo'].apply(list).to_dict()
+    # Agrupar ejecutivos por equipo, provincia y tipo de lead
+    ejecutivos_por_grupo = ejecutivos_df.groupby(['Team', 'provincia_principal', 'tipo_lead'])['Ejecutivo'].apply(list).to_dict()
     
-    leads_por_provincia = leads_df.groupby('provincia_principal')
+    # Agrupar leads por equipo y provincia
+    leads_por_equipo = leads_df.groupby(['Team', 'provincia_principal'])
     
-    for provincia, leads in leads_por_provincia:
-        if provincia not in ejecutivos_por_provincia:
-            continue  # Si no hay ejecutivos para esta provincia, se omite
+    for (equipo, provincia), leads in leads_por_equipo:
         
-        ejecutivos = ejecutivos_por_provincia[provincia]
-        carga_ejecutivos = [(0, ejecutivo) for ejecutivo in ejecutivos]
-        heapq.heapify(carga_ejecutivos)
+        # Filtrar leads en dos categorías
+        leads_mayor_30 = leads[leads['listings'] > 30]
+        leads_menor_30 = leads[leads['listings'] <= 30]
         
-        asignacion[provincia] = {ejecutivo: [] for ejecutivo in ejecutivos}
-        
-        leads_sorted = leads.sort_values(by='listings', ascending=False)
-        
-        for _, row in leads_sorted.iterrows():
-            lead_id, cantidad_listings = row['id_publicador'], row['listings']
-            carga_actual, ejecutivo = heapq.heappop(carga_ejecutivos)
-            asignacion[provincia][ejecutivo].append((lead_id, cantidad_listings))
-            heapq.heappush(carga_ejecutivos, (carga_actual + cantidad_listings, ejecutivo))
+        for tipo_lead, leads_filtrados in [('Mayor a 30 propiedades', leads_mayor_30), ('Menor a 30 propiedades', leads_menor_30)]:
+            if (equipo, provincia, tipo_lead) not in ejecutivos_por_grupo:
+                continue  # Si no hay ejecutivos para este grupo, se omite
+            
+            ejecutivos = ejecutivos_por_grupo[(equipo, provincia, tipo_lead)]
+            carga_ejecutivos = [(0, ejecutivo) for ejecutivo in ejecutivos]
+            heapq.heapify(carga_ejecutivos)
+            
+            # Ordenar leads por cantidad de listings de mayor a menor
+            leads_sorted = leads_filtrados.sort_values(by='listings', ascending=False)
+            
+            for _, row in leads_sorted.iterrows():
+                lead_id, cantidad_listings = row['id_publicador'], row['listings']
+                carga_actual, ejecutivo = heapq.heappop(carga_ejecutivos)
+                asignaciones.append([equipo, provincia, tipo_lead, ejecutivo, lead_id, cantidad_listings])
+                heapq.heappush(carga_ejecutivos, (carga_actual + cantidad_listings, ejecutivo))
     
-    return asignacion
+    return pd.DataFrame(asignaciones, columns=['Team', 'provincia_principal', 'tipo_lead', 'Ejecutivo', 'id_publicador', 'listings'])
 
-asignacion_resultado = asignar_leads_por_provincia(leads_df, ejecutivos_df)
+# Realizar asignación por equipo, provincia y tipo de lead
+asignacion_df = asignar_leads_por_equipo(leads_df, ejecutivos_df)
 
-# Mostrar resultado
-for provincia, ejecutivos in asignacion_resultado.items():
-    print(f"Provincia: {provincia}")
-    for ejecutivo, leads_asignados in ejecutivos.items():
-        total_listings = sum(l[1] for l in leads_asignados)
-        print(f"  {ejecutivo} - Total Listings: {total_listings}\n  Leads: {leads_asignados}\n")
+# Guardar resultado en CSV
+asignacion_df.to_csv('C:\\Users\\diego.trejo\\Downloads\\Asignacion_Leads.csv', index=False)
+
+print("Asignación guardada en 'Asignacion_Leads.csv'")
